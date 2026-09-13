@@ -93,6 +93,27 @@ PHONE_PREFIX = {
     "170": ("MVNO", "虚拟运营商"), "162": ("MVNO", "虚拟运营商"),
 }
 
+# 车牌省份简称：简称 -> (英文, 中文)
+PLATE_PROVINCE = {
+    "京": ("Beijing", "北京"), "津": ("Tianjin", "天津"), "冀": ("Hebei", "河北"),
+    "晋": ("Shanxi", "山西"), "蒙": ("Inner Mongolia", "内蒙古"), "辽": ("Liaoning", "辽宁"),
+    "吉": ("Jilin", "吉林"), "黑": ("Heilongjiang", "黑龙江"), "沪": ("Shanghai", "上海"),
+    "苏": ("Jiangsu", "江苏"), "浙": ("Zhejiang", "浙江"), "皖": ("Anhui", "安徽"),
+    "闽": ("Fujian", "福建"), "赣": ("Jiangxi", "江西"), "鲁": ("Shandong", "山东"),
+    "豫": ("Henan", "河南"), "鄂": ("Hubei", "湖北"), "湘": ("Hunan", "湖南"),
+    "粤": ("Guangdong", "广东"), "桂": ("Guangxi", "广西"), "琼": ("Hainan", "海南"),
+    "渝": ("Chongqing", "重庆"), "川": ("Sichuan", "四川"), "贵": ("Guizhou", "贵州"),
+    "云": ("Yunnan", "云南"), "藏": ("Tibet", "西藏"), "陕": ("Shaanxi", "陕西"),
+    "甘": ("Gansu", "甘肃"), "青": ("Qinghai", "青海"), "宁": ("Ningxia", "宁夏"),
+    "新": ("Xinjiang", "新疆"),
+}
+# 车牌末位特殊字
+PLATE_SUFFIX = {
+    "挂": ("trailer", "挂车"), "学": ("driving school", "教练车"), "警": ("police", "警车"),
+    "港": ("Hong Kong", "香港入出境车"), "澳": ("Macau", "澳门入出境车"),
+    "领": ("consular", "领事馆车"), "使": ("diplomatic", "使馆车"),
+}
+
 # 假数据字表
 SURNAMES = ("王李张刘陈杨黄赵吴周徐孙马朱胡郭何高林罗郑梁谢宋唐许韩冯邓曹彭曾"
             "肖田董袁潘于蒋蔡余杜叶程苏魏吕丁任沈姚卢姜崔钟谭陆汪范金石廖贾夏韦付方白邹孟熊秦邱江尹薛闫段雷侯龙史陶黎贺顾毛郝龚邵万钱严覃武戴莫孔向汤")
@@ -206,6 +227,17 @@ class UsccIn(BaseModel):
     code: str = Field(
         ..., description="18-character Unified Social Credit Code (统一社会信用代码) printed on Chinese "
                          "business licences", examples=["91350100M000100Y43"])
+
+
+class PlateIn(BaseModel):
+    plate: str = Field(..., description="Chinese vehicle licence plate, 7 characters (standard) or "
+                                        "8 characters (new energy). Spaces are ignored.",
+                       examples=["京A12345"])
+
+
+class AddressIn(BaseModel):
+    address: str = Field(..., description="A Chinese address string, with or without spaces",
+                         examples=["广东省深圳市南山区科技路1号"])
 
 
 # ==========================================================================
@@ -326,6 +358,137 @@ def _mask_text(text: str, mask_char: str, keep_head: int, keep_tail: int, lang: 
         "note": p("The bankcard rule matches any run of 16–19 digits, so it can also match order numbers. "
                   "Submit only the field you need masked if you require precision.",
                   "银行卡规则为 16~19 位连续数字，可能误伤订单号；如需精确请只提交待脱敏字段"),
+    }
+
+
+def _check_plate(plate: str, lang: str) -> dict:
+    """校验中国大陆机动车号牌"""
+    p = _L(lang)
+    s = re.sub(r"[\s·.]", "", plate.strip().upper())
+    if not s:
+        return {"valid": False, "reason": p("Plate is empty", "车牌为空")}
+    if len(s) < 6 or len(s) > 8:
+        return {"valid": False, "reason": p(f"Unexpected length ({len(s)} characters)",
+                                            f"长度异常（{len(s)} 位）")}
+
+    # 使 / 领 开头的特殊号牌
+    if s[0] in ("使", "领"):
+        body = s[1:]
+        if body.isdigit() and len(body) in (5, 6):
+            return {
+                "valid": True,
+                "reason": p("Check passed", "校验通过"),
+                "province": p(PLATE_SUFFIX[s[0]][0], PLATE_SUFFIX[s[0]][1]),
+                "type": "special",
+                "normalized": s,
+            }
+        return {"valid": False, "reason": p("Invalid diplomatic/consular plate",
+                                            "使/领 号牌格式不正确")}
+
+    head = s[0]
+    if head not in PLATE_PROVINCE:
+        return {"valid": False, "reason": p(f"Unknown province character '{head}'",
+                                            f"省份简称「{head}」不存在")}
+    en_prov, cn_prov = PLATE_PROVINCE[head]
+    body = s[1:]
+
+    # 第二位（发牌机关代号）必须是字母，且不含 I、O
+    if not body or not re.fullmatch(r"[A-HJ-NP-Z]", body[0]):
+        return {"valid": False, "reason": p("The second character must be a letter (I and O are not used)",
+                                            "第二位必须是字母（不使用 I、O）")}
+
+    rest = body[1:]
+    # 普通号牌：共 7 位。后 5 位里，末位若为 挂/学/警/港/澳，则它占用一个位置
+    if len(s) == 7:
+        suffix_type = None
+        if rest and rest[-1] in PLATE_SUFFIX:
+            suffix_type = rest[-1]
+            rest = rest[:-1]
+            need = 4          # 特殊字占掉了第 5 个位置
+        else:
+            need = 5
+        if not re.fullmatch(rf"[A-HJ-NP-Z0-9]{{{need}}}", rest):
+            return {"valid": False,
+                    "reason": p(f"The last {need} characters may only be digits or letters, "
+                                "excluding I and O",
+                                f"后 {need} 位只能是数字或字母（不含 I、O）")}
+        return {
+            "valid": True,
+            "reason": p("Check passed", "校验通过"),
+            "province": p(en_prov, cn_prov),
+            "type": "standard",
+            "plate_type": ("standard" if not suffix_type
+                           else PLATE_SUFFIX[suffix_type][0]),
+            "normalized": s,
+        }
+
+    # 新能源号牌：共 8 位，后 6 位，首位或末位为 D（纯电）/ F（非纯电）
+    if len(s) == 8:
+        if not re.fullmatch(r"[A-HJ-NP-Z0-9]{6}", rest):
+            return {"valid": False,
+                    "reason": p("The last 6 characters may only be digits or letters, excluding I and O",
+                                "后 6 位只能是数字或字母（不含 I、O）")}
+        is_nev = rest[0] in ("D", "F") or rest[-1] in ("D", "F")
+        return {
+            "valid": True,
+            "reason": p("Check passed", "校验通过") if is_nev
+                      else p("Valid format, but no D/F marker for a new-energy plate",
+                             "格式合法，但缺少新能源号牌的 D/F 标识"),
+            "province": p(en_prov, cn_prov),
+            "type": "new energy" if is_nev else "unknown",
+            "plate_type": "new energy" if is_nev else "standard",
+            "normalized": s,
+        }
+
+    return {"valid": False, "reason": p("Standard plates have 7 characters, new-energy plates 8",
+                                        "普通号牌 7 位，新能源号牌 8 位")}
+
+
+def _parse_address(addr: str, lang: str) -> dict:
+    """把中文地址拆成 省 / 市 / 区县 / 详细地址"""
+    p = _L(lang)
+    s = re.sub(r"[\s　]+", "", addr.strip())
+    if not s:
+        return {"parsed": False, "reason": p("Address is empty", "地址为空")}
+
+    rest = s
+    province = city = district = None
+
+    # 省级
+    m = re.match(r"^(.{2,10}?(?:省|自治区|特别行政区))", rest)
+    if m:
+        province, rest = m.group(1), rest[m.end():]
+    else:
+        for _code, (_en, cn) in PROVINCE.items():
+            if rest.startswith(cn):
+                province, rest = cn, rest[len(cn):]
+                break
+
+    # 市级
+    m = re.match(r"^(.{1,12}?(?:市|地区|自治州|盟))", rest)
+    if m:
+        city, rest = m.group(1), rest[m.end():]
+    elif province in ("北京市", "上海市", "天津市", "重庆市"):
+        city = province
+
+    # 区县级
+    m = re.match(r"^(.{1,12}?(?:区|县|旗|市))", rest)
+    if m:
+        district, rest = m.group(1), rest[m.end():]
+
+    detail = rest or None
+    fields = [province, city, district, detail]
+    return {
+        "parsed": any(fields),
+        "province": province,
+        "city": city,
+        "district": district,
+        "detail": detail,
+        "completeness": round(sum(1 for f in (province, city, district) if f) / 3, 2),
+        "note": p("Rule-based parsing. It reads administrative suffixes (省/市/区/县) rather than "
+                  "matching a full division database, so uncommon names may be split differently.",
+                  "基于规则的解析：按 省/市/区/县 后缀切分，不依赖完整行政区划库，"
+                  "生僻地名可能切分不同。"),
     }
 
 
@@ -615,6 +778,126 @@ def validate_phone(payload: PhoneIn, lang: str = Query("en", description=LANG_DO
         "carrier": p(*entry) if entry else p("Unknown prefix", "未知号段"),
         "masked": ph[:3] + "****" + ph[7:],
     }
+
+
+@app.post("/v1/validate/plate", tags=["Validation"],
+          summary="Validate a Chinese vehicle licence plate",
+          description="""Validates a mainland China vehicle licence plate and tells you which province it
+belongs to.
+
+### Formats accepted
+
+| Type | Length | Shape |
+|---|---|---|
+| Standard | 7 | province character + letter + 5 characters |
+| New energy | 8 | province character + letter + 6 characters (with a `D` or `F` marker) |
+| Diplomatic / consular | 6–7 | `使` or `领` followed by 5–6 digits |
+
+The letter `I` and `O` are never used, to avoid confusion with `1` and `0` — both are rejected.
+
+Trailer (`挂`), driving-school (`学`), police (`警`), Hong Kong (`港`) and Macau (`澳`) plates are
+recognised through their trailing character.
+
+### Example
+
+**Request**
+
+```json
+{ "plate": "京A12345" }
+```
+
+**Response**
+
+```json
+{
+  "valid": true,
+  "reason": "Check passed",
+  "province": "Beijing",
+  "type": "standard",
+  "plate_type": "standard",
+  "normalized": "京A12345"
+}
+```
+
+A new-energy plate:
+
+```json
+{ "plate": "粤BD12345" }
+```
+
+```json
+{ "valid": true, "reason": "Check passed", "province": "Guangdong", "type": "new energy" }
+```
+
+### Notes
+
+- Spaces and the separator dot are ignored, so `京A·12345` works too.
+- This is a **format** check. It cannot tell you whether the plate is registered, whether the vehicle
+  exists, or whether the plate belongs to the vehicle in front of you.
+
+### Typical use
+
+Parking and access-control systems, logistics intake forms, insurance quote forms, fleet management.
+""")
+def validate_plate(payload: PlateIn, lang: str = Query("en", description=LANG_DOC)):
+    return _check_plate(payload.plate, lang)
+
+
+@app.post("/v1/address/parse", tags=["Text Tools"],
+          summary="Parse a Chinese address into province / city / district",
+          description="""Splits a free-form Chinese address into its **administrative components**.
+
+### Example
+
+**Request**
+
+```json
+{ "address": "广东省深圳市南山区科技路1号" }
+```
+
+**Response**
+
+```json
+{
+  "parsed": true,
+  "province": "广东省",
+  "city": "深圳市",
+  "district": "南山区",
+  "detail": "科技路1号",
+  "completeness": 1.0
+}
+```
+
+Municipalities work too — for `北京市朝阳区建国路88号` the city is filled in as `北京市`:
+
+```json
+{
+  "parsed": true,
+  "province": "北京市",
+  "city": "北京市",
+  "district": "朝阳区",
+  "detail": "建国路88号",
+  "completeness": 1.0
+}
+```
+
+`completeness` is how much of the address could be resolved: `1.0` means province, city and district
+were all found.
+
+### Notes
+
+- Parsing is **rule-based**: it reads administrative suffixes (`省` / `市` / `区` / `县` / `自治区` /
+  `自治州` / `盟` / `旗`) instead of matching a full national division database. It is fast and needs no
+  data updates, but uncommon or abbreviated place names may split differently from what you expect.
+- No geocoding is performed. This endpoint does not return coordinates.
+
+### Typical use
+
+Normalising shipping addresses, splitting a single address column into separate fields, routing orders
+by region, cleaning CRM data.
+""")
+def parse_address(payload: AddressIn, lang: str = Query("en", description=LANG_DOC)):
+    return _parse_address(payload.address, lang)
 
 
 @app.post("/v1/count", tags=["Text Tools"],
