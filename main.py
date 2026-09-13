@@ -13,6 +13,7 @@ China Data Toolkit API —— 中国数据校验与合规脱敏 API
 """
 
 import copy
+import json
 import random
 import re
 import string
@@ -21,7 +22,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, Field
 
 # ==========================================================================
@@ -500,3 +501,15 @@ def to_openapi_30(spec: dict) -> dict:
 def openapi_30_json():
     """给 RapidAPI 用的 OpenAPI 3.0.2 规范（直接下载这个文件上传）"""
     return JSONResponse(to_openapi_30(app.openapi()))
+
+
+@app.get("/download/openapi-3.0.2.json", include_in_schema=False)
+def download_openapi_30():
+    """真·下载：点这个链接会直接下载文件，而不是在浏览器里显示"""
+    spec = to_openapi_30(app.openapi())
+    body = json.dumps(spec, ensure_ascii=False, indent=2)
+    return Response(
+        content=body,
+        media_type="application/json",
+        headers={"Content-Disposition": 'attachment; filename="openapi-3.0.2.json"'},
+    )
