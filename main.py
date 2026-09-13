@@ -12,6 +12,7 @@ China Data Toolkit API —— 中国数据校验与合规脱敏 API
 然后打开 http://127.0.0.1:8000/docs 就能看到交互式文档。
 """
 
+import copy
 import random
 import re
 import string
@@ -20,6 +21,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # ==========================================================================
@@ -426,3 +428,75 @@ def fake(payload: FakeIn):
                 "company": one_company, "address": one_address,
             }[payload.kind]()})
     return {"kind": payload.kind, "count": len(out), "data": out}
+
+
+# ==========================================================================
+# OpenAPI 3.0.2 降级转换
+# --------------------------------------------------------------------------
+# 为什么需要这个：
+#   新版 FastAPI 默认输出 OpenAPI 3.1.0，但 RapidAPI 目前只接受到 3.0.2。
+#   直接上传 3.1 规范会被拒绝。这里在服务端现转一份 3.0.2 出来。
+# ==========================================================================
+
+def to_openapi_30(spec: dict) -> dict:
+    """把 OpenAPI 3.1 规范降级成 3.0.2（RapidAPI 可接受）"""
+    s = copy.deepcopy(spec)
+    s["openapi"] = "3.0.2"
+    s.pop("webhooks", None)          # 3.1 专有
+    s.pop("jsonSchemaDialect", None)  # 3.1 专有
+
+    def walk(node):
+        if isinstance(node, dict):
+            # examples: [x] -> example: x   （3.0 用单数）
+            if isinstance(node.get("examples"), list) and node["examples"]:
+                node.setdefault("example", node["examples"][0])
+                del node["examples"]
+
+            # const -> enum
+            if "const" in node:
+                node.setdefault("enum", [node.pop("const")])
+
+            # prefixItems -> items（3.0 不支持元组式数组）
+            if "prefixItems" in node:
+                node["items"] = node.pop("prefixItems")[0]
+
+            # anyOf: [{type: X}, {type: "null"}] -> type: X, nullable: true
+            if isinstance(node.get("anyOf"), list):
+                subs = [x for x in node["anyOf"] if isinstance(x, dict)]
+                nulls = [x for x in subs if x.get("type") == "null"]
+                real = [x for x in subs if x.get("type") != "null"]
+                if nulls and len(real) == 1 and len(subs) == len(node["anyOf"]):
+                    merged = real[0]
+                    rest = {k: v for k, v in node.items() if k != "anyOf"}
+                    node.clear()
+                    node.update(rest)
+                    node.update(merged)
+                    node["nullable"] = True
+                elif nulls:
+                    node["anyOf"] = real
+                    node["nullable"] = True
+
+            # type: ["string","null"] -> type: string, nullable: true  （3.1 写法）
+            t = node.get("type")
+            if isinstance(t, list):
+                if "null" in t:
+                    rest_t = [x for x in t if x != "null"]
+                    node["type"] = rest_t[0] if len(rest_t) == 1 else rest_t
+                    node["nullable"] = True
+                else:
+                    node["type"] = t[0] if len(t) == 1 else t
+
+            for v in list(node.values()):
+                walk(v)
+        elif isinstance(node, list):
+            for v in node:
+                walk(v)
+
+    walk(s)
+    return s
+
+
+@app.get("/openapi-3.0.json", include_in_schema=False)
+def openapi_30_json():
+    """给 RapidAPI 用的 OpenAPI 3.0.2 规范（直接下载这个文件上传）"""
+    return JSONResponse(to_openapi_30(app.openapi()))
