@@ -2,17 +2,17 @@
   "openapi": "3.0.2",
   "info": {
     "title": "China Data Toolkit API",
-    "description": "中国数据校验与合规脱敏 API。\n\n- **PII 脱敏**：自动识别并打码手机号 / 身份证 / 邮箱 / 银行卡，用于日志、客服记录、测试环境\n- **证件校验**：身份证、统一社会信用代码、银行卡（Luhn）、手机号（含运营商）\n- **文本工具**：中英文字数统计、拼音转换、中文假数据生成\n\n全部为纯算法实现，不采集、不存储、不外传任何请求内容。",
+    "description": "Validation and PII-masking utilities for **Chinese data**.\n\nEvery endpoint is a pure algorithm — no scraping, no external data sources, no third-party calls, and **nothing is stored**. Typical response time is under 50 ms.\n\n### What you get\n\n| Group | Endpoints |\n|---|---|\n| **PII masking** | `/v1/mask` |\n| **Validation** | `/v1/validate/idcard`, `/v1/validate/uscc`, `/v1/validate/bankcard`, `/v1/validate/phone` |\n| **Text tools** | `/v1/count`, `/v1/pinyin`, `/v1/fake` |\n\n### Language\n\nResponses are in **English** by default. Pass `?lang=zh` to any endpoint to get Chinese labels instead — useful when the output is shown to Chinese end-users.\n\n### Privacy\n\nRequest bodies are never persisted or logged. The service holds no database.",
     "version": "1.0.0"
   },
   "paths": {
     "/": {
       "get": {
         "tags": [
-          "基础"
+          "Meta"
         ],
-        "summary": "Root",
-        "description": "服务自述",
+        "summary": "Service index",
+        "description": "Returns the service name, version and the list of available endpoints. Useful as a quick smoke test.",
         "operationId": "root__get",
         "responses": {
           "200": {
@@ -29,10 +29,10 @@
     "/health": {
       "get": {
         "tags": [
-          "基础"
+          "Meta"
         ],
-        "summary": "Health",
-        "description": "健康检查（RapidAPI 会调用）",
+        "summary": "Health check",
+        "description": "Returns `{\"status\": \"ok\"}` while the service is up. Use this for uptime monitoring.",
         "operationId": "health_health_get",
         "responses": {
           "200": {
@@ -49,20 +49,250 @@
     "/v1/mask": {
       "post": {
         "tags": [
-          "脱敏"
+          "PII Masking"
         ],
-        "summary": "Mask",
-        "description": "PII 自动脱敏：手机号、身份证、邮箱、银行卡自动打码",
+        "summary": "Mask phone numbers, ID cards, emails and bank cards",
+        "description": "Detects and masks **personally identifiable information** inside any text.\n\nBuilt for three everyday jobs:\n\n- **Log scrubbing** — strip real user data before it reaches your log pipeline\n- **Support tooling** — let an agent read a ticket without seeing the customer's phone number\n- **Test fixtures** — turn production records into safe sample data\n\n### What it detects\n\n| Type | Pattern |\n|---|---|\n| `idcard` | 18-character Chinese resident ID (with `X` check digit) |\n| `phone` | 11-digit mainland China mobile number |\n| `bankcard` | any run of 16–19 digits |\n| `email` | standard email address |\n\nDetection runs longest-pattern-first, so an ID number is never swallowed by the phone rule.\n\n### Response\n\n`masked_text` is the cleaned string. `hits` lists exactly what was found and how each value was\nrewritten, so you can audit the result before trusting it.\n\n### Example\n\n**Request**\n\n```json\n{\n  \"text\": \"Customer Zhang Wei, phone 13812345678, ID 11010519491231002X, email zhang.wei@corp.com\"\n}\n```\n\n**Response**\n\n```json\n{\n  \"masked_text\": \"Customer Zhang Wei, phone 138****5678, ID 110***********002X, email zha**.wei@corp.com\",\n  \"hit_count\": 3,\n  \"hits\": [\n    { \"type\": \"idcard\", \"original\": \"11010519491231002X\", \"masked\": \"110***********002X\" },\n    { \"type\": \"phone\",  \"original\": \"13812345678\",        \"masked\": \"138****5678\" },\n    { \"type\": \"email\",  \"original\": \"zhang.wei@corp.com\", \"masked\": \"zha**.wei@corp.com\" }\n  ]\n}\n```\n\n### Notes\n\n- The `bankcard` rule matches **any** run of 16–19 digits, so it may also catch order numbers. If you\n  need precision, submit only the field you want masked.\n- Nothing is stored or logged. The service is stateless by design — that is the whole point of a\n  masking API.",
         "operationId": "mask_v1_mask_post",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Response language: `en` (default) or `zh`",
+              "default": "en",
+              "title": "Lang"
+            },
+            "description": "Response language: `en` (default) or `zh`"
+          }
+        ],
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/MaskIn"
               }
             }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
           },
-          "required": true
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/idcard": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Validate a Chinese resident ID number",
+        "description": "Validates an 18-character Chinese resident ID (居民身份证号码) and returns the\ninformation encoded inside it.\n\n### Checks performed\n\n1. Length is exactly 18 characters\n2. The first 17 characters are digits; the last is a digit or `X`\n3. The province code (first 2 digits) exists\n4. The birth date is a real calendar date and not in the future\n5. The **check digit** matches the weighted modulo-11 algorithm\n\n### What you get back\n\nBesides `valid`, a passing number returns the `birth_date`, `gender`, `age` and `province` encoded in\nthe number — no second lookup needed.\n\n### Example\n\n**Request**\n\n```json\n{ \"id_number\": \"11010519491231002X\" }\n```\n\n**Response**\n\n```json\n{\n  \"valid\": true,\n  \"reason\": \"Check passed\",\n  \"birth_date\": \"1949-12-31\",\n  \"gender\": \"female\",\n  \"age\": 76,\n  \"province\": \"Beijing\",\n  \"masked\": \"110105********002X\"\n}\n```\n\n**A rejected number**\n\n```json\n{ \"valid\": false, \"reason\": \"Check digit mismatch — the number may have been altered\" }\n```\n\n### Notes\n\n- Lowercase `x` is accepted and normalised to uppercase.\n- This validates the number's **structure only**. It does not confirm that the person exists, nor that\n  the name matches the number.",
+        "operationId": "validate_idcard_v1_validate_idcard_post",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Response language: `en` (default) or `zh`",
+              "default": "en",
+              "title": "Lang"
+            },
+            "description": "Response language: `en` (default) or `zh`"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/uscc": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Validate a Unified Social Credit Code",
+        "description": "Validates the 18-character **Unified Social Credit Code** (统一社会信用代码) printed on\nevery Chinese business licence — the Chinese equivalent of a company registration number.\n\nImplemented per **GB 32100-2015**, including the modulo-31 check digit.\n\n### Example\n\n**Request**\n\n```json\n{ \"code\": \"91350100M000100Y43\" }\n```\n\n**Response**\n\n```json\n{ \"valid\": true, \"reason\": \"Check passed\", \"registration_authority\": \"91\" }\n```\n\n### Notes\n\n- The character set deliberately excludes the letters **I, O, S, V and Z** to avoid confusion with\n  digits. A code containing any of them is rejected immediately.\n- Input is case-insensitive.\n\n### Typical use\n\nSupplier and merchant onboarding forms, KYC flows, invoice reconciliation.",
+        "operationId": "validate_uscc_v1_validate_uscc_post",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Response language: `en` (default) or `zh`",
+              "default": "en",
+              "title": "Lang"
+            },
+            "description": "Response language: `en` (default) or `zh`"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsccIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/bankcard": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Validate a bank card number (Luhn)",
+        "description": "Checks a bank card number with the **Luhn algorithm** (mod-10) and returns a masked copy.\n\n### Example\n\n**Request**\n\n```json\n{ \"card_number\": \"4539148803436467\" }\n```\n\n**Response**\n\n```json\n{ \"valid\": true, \"reason\": \"Luhn check passed\", \"length\": 16, \"masked\": \"4539********6467\" }\n```\n\n### Notes\n\n- Accepts 12–19 digits; spaces are ignored.\n- Luhn catches typos and transposed digits, but it is **not** proof that a card exists or is active.\n  Roughly 1 in 10 random digit strings passes Luhn, so always combine this with your payment\n  provider's own verification.\n- No network lookup is performed and nothing is stored.",
+        "operationId": "validate_bankcard_v1_validate_bankcard_post",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Response language: `en` (default) or `zh`",
+              "default": "en",
+              "title": "Lang"
+            },
+            "description": "Response language: `en` (default) or `zh`"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/phone": {
+      "post": {
+        "tags": [
+          "Validation"
+        ],
+        "summary": "Validate a Chinese mobile number",
+        "description": "Validates an 11-digit mainland China mobile number and identifies the **carrier**\nfrom the allocated number prefix.\n\n### Example\n\n**Request**\n\n```json\n{ \"phone\": \"13812345678\" }\n```\n\n**Response**\n\n```json\n{ \"valid\": true, \"reason\": \"Check passed\", \"carrier\": \"China Mobile\", \"masked\": \"138****5678\" }\n```\n\nCarrier values: `China Mobile`, `China Unicom`, `China Telecom`, `China Broadnet`, `MVNO`\n(virtual operators), or `Unknown prefix`.\n\n### Notes\n\n- Spaces and hyphens are ignored.\n- Prefix data follows the public MIIT allocation list. **Number portability means the carrier shown is\n  the original allocation, not necessarily the current network** — treat it as a hint, not a fact.",
+        "operationId": "validate_phone_v1_validate_phone_post",
+        "parameters": [
+          {
+            "name": "lang",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "description": "Response language: `en` (default) or `zh`",
+              "default": "en",
+              "title": "Lang"
+            },
+            "description": "Response language: `en` (default) or `zh`"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneIn"
+              }
+            }
+          }
         },
         "responses": {
           "200": {
@@ -89,10 +319,10 @@
     "/v1/count": {
       "post": {
         "tags": [
-          "文本"
+          "Text Tools"
         ],
-        "summary": "Count",
-        "description": "中英文字数统计（中文按字、英文按词）",
+        "summary": "Count Chinese and English text correctly",
+        "description": "Counts text the way Chinese and English actually work: **Chinese by character,\nEnglish by word**.\n\nMost generic counters get this wrong — they either report a 3-character Chinese phrase as 3 \"words\",\nor split Chinese text on whitespace and return 1.\n\n### Example\n\n**Request**\n\n```json\n{ \"text\": \"你好world 123，测试。\" }\n```\n\n**Response**\n\n```json\n{\n  \"total_chars\": 15,\n  \"chinese_chars\": 4,\n  \"english_words\": 1,\n  \"digits\": 3,\n  \"punctuation\": 2,\n  \"whitespace\": 1,\n  \"lines\": 1,\n  \"estimated_read_minutes\": 0.01\n}\n```\n\n### Typical use\n\nPricing translation work, enforcing CMS character limits, estimating reading time, validating\nuser-submitted content.",
         "operationId": "count_v1_count_post",
         "requestBody": {
           "content": {
@@ -126,173 +356,13 @@
         }
       }
     },
-    "/v1/validate/idcard": {
-      "post": {
-        "tags": [
-          "校验"
-        ],
-        "summary": "Validate Idcard",
-        "description": "身份证校验：合法性 + 出生日期 + 性别 + 年龄 + 归属省",
-        "operationId": "validate_idcard_v1_validate_idcard_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/IdIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/validate/phone": {
-      "post": {
-        "tags": [
-          "校验"
-        ],
-        "summary": "Validate Phone",
-        "description": "手机号校验 + 运营商归属",
-        "operationId": "validate_phone_v1_validate_phone_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/PhoneIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/validate/bankcard": {
-      "post": {
-        "tags": [
-          "校验"
-        ],
-        "summary": "Validate Bankcard",
-        "description": "银行卡号 Luhn 校验",
-        "operationId": "validate_bankcard_v1_validate_bankcard_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/BankIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/v1/validate/uscc": {
-      "post": {
-        "tags": [
-          "校验"
-        ],
-        "summary": "Validate Uscc",
-        "description": "统一社会信用代码校验（GB 32100-2015），营业执照上的 18 位代码",
-        "operationId": "validate_uscc_v1_validate_uscc_post",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UsccIn"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/v1/pinyin": {
       "post": {
         "tags": [
-          "文本"
+          "Text Tools"
         ],
-        "summary": "Pinyin",
-        "description": "汉字转拼音：支持不带声调 / 数字声调 / 首字母",
+        "summary": "Convert Chinese characters to pinyin",
+        "description": "Converts Chinese text to **pinyin** in one of three styles.\n\n### Styles\n\n| `style` | Output | Use for |\n|---|---|---|\n| `plain` | `zhong guo yin hang` | Display, URL slugs |\n| `tone` | `zhong1 guo2 yin2 hang2` | Pronunciation, language learning |\n| `first` | `z g y h` | Initials, sorting, search |\n\n### Example\n\n**Request**\n\n```json\n{ \"text\": \"中国银行\", \"style\": \"plain\" }\n```\n\n**Response**\n\n```json\n{\n  \"pinyin\": \"zhong guo yin hang\",\n  \"syllables\": [\"zhong\", \"guo\", \"yin\", \"hang\"],\n  \"count\": 4\n}\n```\n\n### Notes\n\n- Non-Chinese characters (digits, punctuation, Latin letters) are passed through unchanged.\n- Characters with multiple readings use the most common pronunciation. This is reliable for real\n  words; isolated rare characters may occasionally be read differently than intended.",
         "operationId": "pinyin_v1_pinyin_post",
         "requestBody": {
           "content": {
@@ -329,10 +399,10 @@
     "/v1/fake": {
       "post": {
         "tags": [
-          "假数据"
+          "Text Tools"
         ],
-        "summary": "Fake",
-        "description": "生成中文测试假数据（姓名/手机/身份证/公司/地址），用于压测和演示",
+        "summary": "Generate realistic Chinese test data",
+        "description": "Generates **structurally valid Chinese test data** — names, mobile numbers, ID\nnumbers, company names and addresses.\n\n### Why it is useful\n\nThe ID numbers returned here **pass the same checksum that the validation endpoints enforce**, so you\ncan seed a test database and immediately exercise your own validation logic. Addresses use real\ncity/district pairings rather than random combinations.\n\n### Example\n\n**Request**\n\n```json\n{ \"kind\": \"all\", \"count\": 1 }\n```\n\n**Response**\n\n```json\n{\n  \"kind\": \"all\",\n  \"count\": 1,\n  \"data\": [\n    {\n      \"name\": \"谭远\",\n      \"phone\": \"13928475610\",\n      \"idcard\": \"440305198703124417\",\n      \"company\": \"Shenzhen Wei Technology Co., Ltd.\",\n      \"address\": \"Shenzhen Nanshan Keji Rd 412\"\n    }\n  ]\n}\n```\n\n### Notes\n\n- **This is synthetic data. It does not correspond to any real person.** Never use it to impersonate\n  anyone or to bypass identity verification.\n- `kind` accepts `name`, `phone`, `idcard`, `company`, `address`, or `all`.\n- Maximum 100 records per request.",
         "operationId": "fake_v1_fake_post",
         "requestBody": {
           "content": {
@@ -374,8 +444,8 @@
           "card_number": {
             "type": "string",
             "title": "Card Number",
-            "description": "16~19 位银行卡号",
-            "example": "6222020200112233445"
+            "description": "Bank card number, 16–19 digits",
+            "example": "4539148803436467"
           }
         },
         "type": "object",
@@ -389,7 +459,7 @@
           "kind": {
             "type": "string",
             "title": "Kind",
-            "description": "name / phone / idcard / company / address / all",
+            "description": "`name` / `phone` / `idcard` / `company` / `address` / `all`",
             "default": "name"
           },
           "count": {
@@ -397,7 +467,7 @@
             "maximum": 100.0,
             "minimum": 1.0,
             "title": "Count",
-            "description": "生成数量，1~100",
+            "description": "How many records to generate (1–100)",
             "default": 5
           }
         },
@@ -422,7 +492,7 @@
           "id_number": {
             "type": "string",
             "title": "Id Number",
-            "description": "18 位身份证号",
+            "description": "18-character Chinese resident ID number. The last character may be a digit or `X`.",
             "example": "11010519491231002X"
           }
         },
@@ -437,13 +507,14 @@
           "text": {
             "type": "string",
             "title": "Text",
-            "description": "需要脱敏的文本"
+            "description": "Text to mask. Phone numbers, ID cards, emails and bank cards are detected automatically. Max 20,000 characters.",
+            "example": "Customer Zhang Wei, phone 13812345678, ID 11010519491231002X"
           },
           "mask_char": {
             "type": "string",
             "maxLength": 1,
             "title": "Mask Char",
-            "description": "打码用的字符，默认 *",
+            "description": "Character used to replace masked characters",
             "default": "*"
           },
           "keep_head": {
@@ -451,7 +522,7 @@
             "maximum": 10.0,
             "minimum": 0.0,
             "title": "Keep Head",
-            "description": "保留前几位（手机/银行卡）",
+            "description": "How many leading characters to keep visible",
             "default": 3
           },
           "keep_tail": {
@@ -459,7 +530,7 @@
             "maximum": 10.0,
             "minimum": 0.0,
             "title": "Keep Tail",
-            "description": "保留后几位",
+            "description": "How many trailing characters to keep visible",
             "default": 4
           }
         },
@@ -474,7 +545,7 @@
           "phone": {
             "type": "string",
             "title": "Phone",
-            "description": "11 位手机号",
+            "description": "11-digit mainland China mobile number",
             "example": "13812345678"
           }
         },
@@ -489,19 +560,19 @@
           "text": {
             "type": "string",
             "title": "Text",
-            "description": "中文文本",
+            "description": "Chinese text to convert",
             "example": "中国银行"
           },
           "style": {
             "type": "string",
             "title": "Style",
-            "description": "plain=不带声调 / tone=带声调数字 / first=首字母",
+            "description": "`plain` = no tones, `tone` = numbered tones, `first` = initials only",
             "default": "plain"
           },
           "separator": {
             "type": "string",
             "title": "Separator",
-            "description": "拼音之间的分隔符",
+            "description": "String placed between syllables",
             "default": " "
           }
         },
@@ -516,8 +587,8 @@
           "text": {
             "type": "string",
             "title": "Text",
-            "description": "待处理文本",
-            "example": "联系我 13812345678 或 a@b.com"
+            "description": "Text to analyse",
+            "example": "你好world 123，测试。"
           }
         },
         "type": "object",
@@ -531,7 +602,7 @@
           "code": {
             "type": "string",
             "title": "Code",
-            "description": "18 位统一社会信用代码",
+            "description": "18-character Unified Social Credit Code (统一社会信用代码) printed on Chinese business licences",
             "example": "91350100M000100Y43"
           }
         },
@@ -582,5 +653,11 @@
         "title": "ValidationError"
       }
     }
-  }
+  },
+  "servers": [
+    {
+      "url": "https://china-data-toolkit-api.onrender.com",
+      "description": "Production"
+    }
+  ]
 }
