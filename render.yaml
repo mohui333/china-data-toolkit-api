@@ -1,0 +1,13 @@
+# Render 免费部署配置
+# 用法：把这个仓库推到 GitHub，在 Render 选 "New Web Service" 并连接仓库，它会自动读这个文件。
+services:
+  - type: web
+    name: china-data-toolkit-api
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
