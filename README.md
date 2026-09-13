@@ -6,11 +6,17 @@
 
 | | |
 |---|---|
+| **RapidAPI listing** | https://rapidapi.com/mohui333/api/china-data-toolkit |
 | **线上地址** | https://china-data-toolkit-api.onrender.com |
 | **交互式文档** | https://china-data-toolkit-api.onrender.com/docs |
-| **OpenAPI 规范**（RapidAPI 导入用） | https://china-data-toolkit-api.onrender.com/openapi.json |
+| **OpenAPI 规范**（RapidAPI 导入用） | https://china-data-toolkit-api.onrender.com/openapi-3.0.json |
+| **一键下载规范文件** | https://china-data-toolkit-api.onrender.com/download/openapi-3.0.2.json |
 | **健康检查** | https://china-data-toolkit-api.onrender.com/health |
+| **GitHub 仓库** | https://github.com/mohui333/china-data-toolkit-api |
 | **托管平台** | Render（新加坡节点，免费层） |
+
+**上线状态（已核验）**：可见性 `PUBLIC`，**9 个端点**全部挂载，
+4 档计划 **BASIC 免费 / PRO $12 / ULTRA $49 / MEGA $199**。
 
 上线后已逐个验证 8 个业务端点，全部返回 200 且数据正确。
 
