@@ -1,0 +1,586 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "China Data Toolkit API",
+    "description": "中国数据校验与合规脱敏 API。\n\n- **PII 脱敏**：自动识别并打码手机号 / 身份证 / 邮箱 / 银行卡，用于日志、客服记录、测试环境\n- **证件校验**：身份证、统一社会信用代码、银行卡（Luhn）、手机号（含运营商）\n- **文本工具**：中英文字数统计、拼音转换、中文假数据生成\n\n全部为纯算法实现，不采集、不存储、不外传任何请求内容。",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/": {
+      "get": {
+        "tags": [
+          "基础"
+        ],
+        "summary": "Root",
+        "description": "服务自述",
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": [
+          "基础"
+        ],
+        "summary": "Health",
+        "description": "健康检查（RapidAPI 会调用）",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/mask": {
+      "post": {
+        "tags": [
+          "脱敏"
+        ],
+        "summary": "Mask",
+        "description": "PII 自动脱敏：手机号、身份证、邮箱、银行卡自动打码",
+        "operationId": "mask_v1_mask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MaskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/count": {
+      "post": {
+        "tags": [
+          "文本"
+        ],
+        "summary": "Count",
+        "description": "中英文字数统计（中文按字、英文按词）",
+        "operationId": "count_v1_count_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TextIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/idcard": {
+      "post": {
+        "tags": [
+          "校验"
+        ],
+        "summary": "Validate Idcard",
+        "description": "身份证校验：合法性 + 出生日期 + 性别 + 年龄 + 归属省",
+        "operationId": "validate_idcard_v1_validate_idcard_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/phone": {
+      "post": {
+        "tags": [
+          "校验"
+        ],
+        "summary": "Validate Phone",
+        "description": "手机号校验 + 运营商归属",
+        "operationId": "validate_phone_v1_validate_phone_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PhoneIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/bankcard": {
+      "post": {
+        "tags": [
+          "校验"
+        ],
+        "summary": "Validate Bankcard",
+        "description": "银行卡号 Luhn 校验",
+        "operationId": "validate_bankcard_v1_validate_bankcard_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BankIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/validate/uscc": {
+      "post": {
+        "tags": [
+          "校验"
+        ],
+        "summary": "Validate Uscc",
+        "description": "统一社会信用代码校验（GB 32100-2015），营业执照上的 18 位代码",
+        "operationId": "validate_uscc_v1_validate_uscc_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsccIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/pinyin": {
+      "post": {
+        "tags": [
+          "文本"
+        ],
+        "summary": "Pinyin",
+        "description": "汉字转拼音：支持不带声调 / 数字声调 / 首字母",
+        "operationId": "pinyin_v1_pinyin_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PinyinIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/fake": {
+      "post": {
+        "tags": [
+          "假数据"
+        ],
+        "summary": "Fake",
+        "description": "生成中文测试假数据（姓名/手机/身份证/公司/地址），用于压测和演示",
+        "operationId": "fake_v1_fake_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FakeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "BankIn": {
+        "properties": {
+          "card_number": {
+            "type": "string",
+            "title": "Card Number",
+            "description": "16~19 位银行卡号",
+            "example": "6222020200112233445"
+          }
+        },
+        "type": "object",
+        "required": [
+          "card_number"
+        ],
+        "title": "BankIn"
+      },
+      "FakeIn": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "title": "Kind",
+            "description": "name / phone / idcard / company / address / all",
+            "default": "name"
+          },
+          "count": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Count",
+            "description": "生成数量，1~100",
+            "default": 5
+          }
+        },
+        "type": "object",
+        "title": "FakeIn"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "IdIn": {
+        "properties": {
+          "id_number": {
+            "type": "string",
+            "title": "Id Number",
+            "description": "18 位身份证号",
+            "example": "11010519491231002X"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id_number"
+        ],
+        "title": "IdIn"
+      },
+      "MaskIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "需要脱敏的文本"
+          },
+          "mask_char": {
+            "type": "string",
+            "maxLength": 1,
+            "title": "Mask Char",
+            "description": "打码用的字符，默认 *",
+            "default": "*"
+          },
+          "keep_head": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Keep Head",
+            "description": "保留前几位（手机/银行卡）",
+            "default": 3
+          },
+          "keep_tail": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Keep Tail",
+            "description": "保留后几位",
+            "default": 4
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "MaskIn"
+      },
+      "PhoneIn": {
+        "properties": {
+          "phone": {
+            "type": "string",
+            "title": "Phone",
+            "description": "11 位手机号",
+            "example": "13812345678"
+          }
+        },
+        "type": "object",
+        "required": [
+          "phone"
+        ],
+        "title": "PhoneIn"
+      },
+      "PinyinIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "中文文本",
+            "example": "中国银行"
+          },
+          "style": {
+            "type": "string",
+            "title": "Style",
+            "description": "plain=不带声调 / tone=带声调数字 / first=首字母",
+            "default": "plain"
+          },
+          "separator": {
+            "type": "string",
+            "title": "Separator",
+            "description": "拼音之间的分隔符",
+            "default": " "
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "PinyinIn"
+      },
+      "TextIn": {
+        "properties": {
+          "text": {
+            "type": "string",
+            "title": "Text",
+            "description": "待处理文本",
+            "example": "联系我 13812345678 或 a@b.com"
+          }
+        },
+        "type": "object",
+        "required": [
+          "text"
+        ],
+        "title": "TextIn"
+      },
+      "UsccIn": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "18 位统一社会信用代码",
+            "example": "91350100M000100Y43"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "UsccIn"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
