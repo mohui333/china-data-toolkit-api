@@ -1,6 +1,18 @@
 # China Data Toolkit API —— 可上架 RapidAPI 的成品
 
-一句话：**中文数据校验 + PII 合规脱敏 API。已写好、已测试、可部署、可上架。**
+一句话：**中文数据校验 + PII 合规脱敏 API。已写好、已测试、已部署上线。**
+
+## 🟢 已上线
+
+| | |
+|---|---|
+| **线上地址** | https://china-data-toolkit-api.onrender.com |
+| **交互式文档** | https://china-data-toolkit-api.onrender.com/docs |
+| **OpenAPI 规范**（RapidAPI 导入用） | https://china-data-toolkit-api.onrender.com/openapi.json |
+| **健康检查** | https://china-data-toolkit-api.onrender.com/health |
+| **托管平台** | Render（新加坡节点，免费层） |
+
+上线后已逐个验证 8 个业务端点，全部返回 200 且数据正确。
 
 ---
 
