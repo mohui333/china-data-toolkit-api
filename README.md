@@ -51,6 +51,8 @@
 | `POST /v1/validate/uscc` | 统一社会信用代码校验（GB 32100） | 企业入驻、B 端表单 |
 | `POST /v1/validate/bankcard` | 银行卡 Luhn 校验 | 支付、绑卡 |
 | `POST /v1/validate/phone` | 手机号校验 + 运营商 | 注册、短信 |
+| `POST /v1/validate/plate` | **车牌校验**（含新能源/挂车/教练车） | 停车、门禁、物流、保险 |
+| `POST /v1/address/parse` | **中文地址拆解**成 省/市/区/详细 | 电商发货、CRM 清洗、订单分拨 |
 | `POST /v1/count` | 中文按字/英文按词的字数统计 | 内容平台、翻译报价 |
 | `POST /v1/pinyin` | 汉字转拼音（带声调/首字母） | 搜索、排序、教学 |
 | `POST /v1/fake` | 生成中文假数据 | 压测、演示 |
